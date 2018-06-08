@@ -33,10 +33,10 @@ remix-ide
 Or if you want to clone the github repository (`wget` need to be installed first) :
 
 ```bash
-git clone https://github.com/ethereum/remix-ide.git
+git clone https://github.com//etherzero-org/remix-ide.git
 cd remix-ide
 npm install
-npm run setupremix  # this will clone https://github.com/ethereum/remix for you and link it to remix-ide
+npm run setupremix  # this will clone https://github.com//etherzero-org/remix for you and link it to remix-ide
 npm start
 ```
 
@@ -47,13 +47,13 @@ Run `npm start` and open `http://127.0.0.1:8080` in your browser.
 Then open your `text editor` and start developing.
 The browser will automatically refresh when files are saved.
 
-Most of the the time working with other modules (like debugger etc.) hosted in the [Remix repository](https://github.com/ethereum/remix) is not needed.
+Most of the the time working with other modules (like debugger etc.) hosted in the [Remix repository](https://github.com//etherzero-org/remix) is not needed.
 
 ### Troubleshooting building
 
 Some things to consider if you have trouble building the package:
 
-- Make sure that you have the correct version of `node`, `npm` and `nvm`. You can find the version that is tested on Travis CI by looking at the log in the [build results](https://travis-ci.org/ethereum/remix-ide).
+- Make sure that you have the correct version of `node`, `npm` and `nvm`. You can find the version that is tested on Travis CI by looking at the log in the [build results](https://travis-ci.org//etherzero-org/remix-ide).
 
 Run:
 
