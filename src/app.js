@@ -220,12 +220,12 @@ function run () {
     modalDialogCustom.alert(`This instance of the Remix IDE is an UNSTABLE ALPHA branch.\n
 Please only use it if you know what you are doing, otherwise visit the stable version at http://remix.ethereum.org.`)
   } else if (window.location.protocol.indexOf('http') === 0 &&
-  window.location.hostname !== 'remix.ethereum.org' &&
+  window.location.hostname !== 'remix.etherzero.org' &&
   window.location.hostname !== 'localhost' &&
   window.location.hostname !== '127.0.0.1') {
-    modalDialogCustom.alert(`The Remix IDE has moved to http://remix.ethereum.org.\n
+    modalDialogCustom.alert(`The Remix IDE has moved to http://remix.etherzero.org.\n
 This instance of Remix you are visiting WILL NOT BE UPDATED.\n
-Please make a backup of your contracts and start using http://remix.ethereum.org`)
+Please make a backup of your contracts and start using http://remix.etherzero.org`)
   }
 
   if (window.location.protocol.indexOf('https') === 0) {
