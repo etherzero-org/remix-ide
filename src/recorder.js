@@ -1,5 +1,5 @@
 var remixLib = require('remix-lib')
-var EventManager = remixLib.EventManager
+var EventManager = require('./lib/events')
 var ethutil = require('ethereumjs-util')
 var executionContext = require('./execution-context')
 var format = remixLib.execution.txFormat
@@ -13,19 +13,13 @@ var modal = require('./app/ui/modal-dialog-custom')
   *
   */
 class Recorder {
-  constructor (compiler, udapp, opts = {}) {
+  constructor (udapp, logCallBack) {
     var self = this
-    self._api = opts.api
+    self.logCallBack = logCallBack
     self.event = new EventManager()
     self.data = { _listen: true, _replay: false, journal: [], _createdContracts: {}, _createdContractsReverse: {}, _usedAccounts: {}, _abis: {}, _contractABIReferences: {}, _linkReferences: {} }
-    opts.events.executioncontext.register('contextChanged', () => {
-      self.clearAll()
-    })
-    opts.events.runtab.register('clearInstance', () => {
-      self.clearAll()
-    })
 
-    opts.events.udapp.register('initiatingTransaction', (timestamp, tx, payLoad) => {
+    udapp.event.register('initiatingTransaction', (timestamp, tx, payLoad) => {
       if (tx.useCall) return
       var { from, to, value } = tx
 
@@ -33,32 +27,29 @@ class Recorder {
       if (this.data._listen) {
         var record = { value, parameters: payLoad.funArgs }
         if (!to) {
-          var selectedContract = compiler.getContract(payLoad.contractName)
-          if (selectedContract) {
-            var abi = selectedContract.object.abi
-            var sha3 = ethutil.bufferToHex(ethutil.sha3(abi))
-            record.abi = sha3
-            record.contractName = payLoad.contractName
-            record.bytecode = payLoad.contractBytecode
-            record.linkReferences = selectedContract.object.evm.bytecode.linkReferences
-            if (record.linkReferences && Object.keys(record.linkReferences).length) {
-              for (var file in record.linkReferences) {
-                for (var lib in record.linkReferences[file]) {
-                  self.data._linkReferences[lib] = '<address>'
-                }
+          var abi = payLoad.contractABI
+          var sha3 = ethutil.bufferToHex(ethutil.sha3(abi))
+          record.abi = sha3
+          record.contractName = payLoad.contractName
+          record.bytecode = payLoad.contractBytecode
+          record.linkReferences = payLoad.linkReferences
+          if (record.linkReferences && Object.keys(record.linkReferences).length) {
+            for (var file in record.linkReferences) {
+              for (var lib in record.linkReferences[file]) {
+                self.data._linkReferences[lib] = '<address>'
               }
             }
-            self.data._abis[sha3] = abi
-
-            this.data._contractABIReferences[timestamp] = sha3
           }
+          self.data._abis[sha3] = abi
+
+          this.data._contractABIReferences[timestamp] = sha3
         } else {
           var creationTimestamp = this.data._createdContracts[to]
           record.to = `created{${creationTimestamp}}`
           record.abi = this.data._contractABIReferences[creationTimestamp]
         }
-
         record.name = payLoad.funAbi.name
+        record.inputs = txHelper.serializeInputs(payLoad.funAbi)
         record.type = payLoad.funAbi.type
 
         udapp.getAccounts((error, accounts) => {
@@ -70,7 +61,7 @@ class Recorder {
       }
     })
 
-    opts.events.udapp.register('transactionExecuted', (error, from, to, data, call, txResult, timestamp) => {
+    udapp.event.register('transactionExecuted', (error, from, to, data, call, txResult, timestamp) => {
       if (error) return console.log(error)
       if (call) return
 
@@ -184,7 +175,7 @@ class Recorder {
   run (records, accounts, options, abis, linkReferences, udapp, newContractFn) {
     var self = this
     self.setListen(false)
-    self._api.logMessage(`Running ${records.length} transaction(s) ...`)
+    self.logCallBack(`Running ${records.length} transaction(s) ...`)
     async.eachOfSeries(records, function (tx, index, cb) {
       var record = self.resolveAddress(tx.record, accounts, options)
       var abi = abis[tx.record.abi]
@@ -207,8 +198,10 @@ class Recorder {
       var fnABI
       if (tx.record.type === 'constructor') {
         fnABI = txHelper.getConstructorInterface(abi)
+      } else if (tx.record.type === 'fallback') {
+        fnABI = txHelper.getFallbackInterface(abi)
       } else {
-        fnABI = txHelper.getFunction(abi, record.name)
+        fnABI = txHelper.getFunction(abi, record.name + record.inputs)
       }
       if (!fnABI) {
         modal.alert('cannot resolve abi of ' + JSON.stringify(record, null, '\t') + '. Execution stopped at ' + index)
@@ -241,14 +234,14 @@ class Recorder {
         cb(data.error)
         return
       } else {
-        self._api.logMessage(`(${index}) ${JSON.stringify(record, null, '\t')}`)
-        self._api.logMessage(`(${index}) data: ${data.data}`)
+        self.logCallBack(`(${index}) ${JSON.stringify(record, null, '\t')}`)
+        self.logCallBack(`(${index}) data: ${data.data}`)
         record.data = { dataHex: data.data, funArgs: tx.record.parameters, funAbi: fnABI, contractBytecode: tx.record.bytecode, contractName: tx.record.contractName }
       }
       udapp.runTx(record, function (err, txResult) {
         if (err) {
           console.error(err)
-          self._api.logMessage(err + '. Execution failed at ' + index)
+          self.logCallBack(err + '. Execution failed at ' + index)
         } else {
           var address = executionContext.isVM() ? txResult.result.createdAddress : txResult.result.contractAddress
           if (address) {

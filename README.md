@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/ethereum/remix-ide.svg?branch=master)](https://travis-ci.org/ethereum/remix-ide)
+[![CircleCI](https://circleci.com/gh/ethereum/remix-ide.svg?style=svg)](https://circleci.com/gh/ethereum/remix-ide)
 [![BrowserStack Status](https://www.browserstack.com/automate/badge.svg?badge_key=MTc5WVBoNnhOTGhaUng3ZFI3MDZvNWkraHIrd1FNanZIZk80SG9uMkFIND0tLUoyUjd1YVhWRnRrcUJMMnFlbmN3Y0E9PQ==--4085377897aef217e507c8fc46d463eb699838b8)](https://www.browserstack.com/automate/public-build/MTc5WVBoNnhOTGhaUng3ZFI3MDZvNWkraHIrd1FNanZIZk80SG9uMkFIND0tLUoyUjd1YVhWRnRrcUJMMnFlbmN3Y0E9PQ==--4085377897aef217e507c8fc46d463eb699838b8)
 
 
@@ -8,6 +8,8 @@
 Remix is a browser-based compiler and IDE that enables users to build **Ethereum contracts with Solidity language** and to debug transactions.
 
 To try it out, visit [https://remix.ethereum.org](https://remix.ethereum.org).
+
+https://github.com/ethereum/remix-ide/releases also gives others ways to use Remix locally. Please check it out.
 
 Remix consists of many modules and in this repository you will find the Remix IDE (aka. Browser-Solidity).
 
@@ -33,10 +35,11 @@ remix-ide
 Or if you want to clone the github repository (`wget` need to be installed first) :
 
 ```bash
-git clone https://github.com//etherzero-org/remix-ide.git
+git clone https://github.com/etherzero-org/remix-ide.git
+git clone https://github.com/etherzero-org/remix.git # only if you plan to link remix and remix-ide repositories and develop on it.
 cd remix-ide
 npm install
-npm run setupremix  # this will clone https://github.com//etherzero-org/remix for you and link it to remix-ide
+npm run setupremix  # only if you plan to link remix and remix-ide repositories and develop on it.
 npm start
 ```
 

@@ -1,6 +1,6 @@
 'use strict'
 var base64 = require('js-base64').Base64
-var swarmgw = require('swarmgw')
+var swarmgw = require('swarmgw')()
 var request = require('request')
 
 module.exports = class CompilerImports {
@@ -12,10 +12,7 @@ module.exports = class CompilerImports {
     return request.get(
       {
         url: 'https://api.github.com/repos/' + root + '/contents/' + path,
-        json: true,
-        headers: {
-          'User-Agent': 'Remix'
-        }
+        json: true
       },
       (err, r, data) => {
         if (err) {
@@ -43,10 +40,7 @@ module.exports = class CompilerImports {
 
     return request.get(
       {
-        url: 'https://gateway.ipfs.io/' + url,
-        headers: {
-          'User-Agent': 'Remix'
-        }
+        url: 'https://gateway.ipfs.io/' + url
       },
       (err, r, data) => {
         if (err) {
@@ -56,16 +50,31 @@ module.exports = class CompilerImports {
       })
   }
 
+  handleHttpCall (url, cleanUrl, cb) {
+    return request.get(
+      {
+        url
+      },
+    (err, r, data) => {
+      if (err) {
+        return cb(err || 'Unknown transport error')
+      }
+      cb(null, data, cleanUrl)
+    })
+  }
+
   handlers () {
     return [
       { type: 'github', match: /^(https?:\/\/)?(www.)?github.com\/([^/]*\/[^/]*)\/(.*)/, handler: (match, cb) => { this.handleGithubCall(match[3], match[4], cb) } },
-      { type: 'swarm', match: /^(bzz[ri]?:\/\/?(.*))$/, handler: (match, cb) => { this.handleSwarmImport(match[1], match[2], cb) } },
+      { type: 'http', match: /^(http?:\/\/?(.*))$/, handler: (match, cb) => { this.handleHttpCall(match[1], match[2], cb) } },
+      { type: 'https', match: /^(https?:\/\/?(.*))$/, handler: (match, cb) => { this.handleHttpCall(match[1], match[2], cb) } },
+      { type: 'swarm', match: /^(bzz-raw?:\/\/?(.*))$/, handler: (match, cb) => { this.handleSwarmImport(match[1], match[2], cb) } },
       { type: 'ipfs', match: /^(ipfs:\/\/?.+)/, handler: (match, cb) => { this.handleIPFS(match[1], cb) } }
     ]
   }
 
   isRelativeImport (url) {
-    return /^([A-Za-z0-9]+)/.exec(url)
+    return /^([^/]+)/.exec(url)
   }
 
   import (url, loadingCb, cb) {

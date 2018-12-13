@@ -1,5 +1,5 @@
 'use strict'
-var StaticAnalysisRunner = require('remix-solidity').CodeAnalysis
+var StaticAnalysisRunner = require('remix-analyzer').CodeAnalysis
 var yo = require('yo-yo')
 var $ = require('jquery')
 var remixLib = require('remix-lib')
@@ -9,22 +9,34 @@ var styleGuide = require('../ui/styles-guide/theme-chooser')
 var styles = styleGuide.chooser()
 
 var css = require('./styles/staticAnalysisView-styles')
+var globlalRegistry = require('../../global/registry')
 
-var EventManager = remixLib.EventManager
+var EventManager = require('../../lib/events')
 
-function staticAnalysisView (appAPI, compilerEvent) {
+function staticAnalysisView (localRegistry) {
+  var self = this
   this.event = new EventManager()
   this.view = null
-  this.appAPI = appAPI
   this.runner = new StaticAnalysisRunner()
-  this.modulesView = renderModules(this.runner.modules())
+  this.modulesView = this.renderModules()
   this.lastCompilationResult = null
-  var self = this
-  compilerEvent.register('compilationFinished', function (success, data, source) {
+  this.lastCompilationSource = null
+  self._components = {}
+  self._components.registry = localRegistry || globlalRegistry
+  // dependencies
+  self._deps = {
+    compiler: self._components.registry.get('compiler').api,
+    renderer: self._components.registry.get('renderer').api,
+    offsetToLineColumnConverter: self._components.registry.get('offsettolinecolumnconverter').api
+  }
+
+  self._deps.compiler.event.register('compilationFinished', function (success, data, source) {
     self.lastCompilationResult = null
+    self.lastCompilationSource = null
     $('#staticanalysisresult').empty()
     if (success) {
       self.lastCompilationResult = data
+      self.lastCompilationSource = source
       if (self.view.querySelector('#autorunstaticanalysis').checked) {
         self.run()
       }
@@ -41,7 +53,23 @@ staticAnalysisView.prototype.render = function () {
       </div>
       <div class="${css.buttons}">
         <button class=${css.buttonRun} onclick=${function () { self.run() }} >Run</button>
-        <label class="${css.label}" for="autorunstaticanalysis"><input id="autorunstaticanalysis" type="checkbox" style="vertical-align:bottom" checked="true">Auto run</label>
+        <label class="${css.label}" for="autorunstaticanalysis">
+          <input id="autorunstaticanalysis"
+            type="checkbox"
+            style="vertical-align:bottom"
+            checked="true"
+          >
+          Auto run
+        </label>
+        <label class="${css.label}" for="checkallstaticanalysis">
+          <input id="checkallstaticanalysis"
+            type="checkbox"
+            onclick="${function (event) { self.checkAll(event) }}"
+            style="vertical-align:bottom"
+            checked="true"
+          >
+          Check/Uncheck all
+        </label>
       </div>
       <div class="${css.result}" "id='staticanalysisresult'></div>
     </div>
@@ -85,12 +113,12 @@ staticAnalysisView.prototype.run = function () {
               start: parseInt(split[0]),
               length: parseInt(split[1])
             }
-            location = self.appAPI.offsetToLineColumn(location, file)
+            location = self._deps.offsetToLineColumnConverter.offsetToLineColumn(location, parseInt(file), self._deps.compiler.lastCompilationResult.source.sources, self._deps.compiler.lastCompilationResult.data.sources)
             location = Object.keys(self.lastCompilationResult.contracts)[file] + ':' + (location.start.line + 1) + ':' + (location.start.column + 1) + ':'
           }
           warningCount++
           var msg = yo`<span>${location} ${item.warning} ${item.more ? yo`<span><br><a href="${item.more}" target="blank">more</a></span>` : yo`<span></span>`}</span>`
-          self.appAPI.renderWarning(msg, warningContainer, {type: 'staticAnalysisWarning', useSpan: true})
+          self._deps.renderer.error(msg, warningContainer, {type: 'staticAnalysisWarning', useSpan: true})
         })
       })
       if (warningContainer.html() === '') {
@@ -106,10 +134,34 @@ staticAnalysisView.prototype.run = function () {
   }
 }
 
-module.exports = staticAnalysisView
+staticAnalysisView.prototype.checkAll = function (event) {
+  if (!this.view) {
+    return
+  }
+  var all = this.view.querySelectorAll('[name="staticanalysismodule"]')
+  var isAnySelected = false
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].checked === true) {
+      isAnySelected = true
+      break
+    }
+  }
+  for (var j = 0; j < all.length; j++) {
+    all[j].checked = !isAnySelected
+  }
+  event.target.checked = !isAnySelected
+}
 
-function renderModules (modules) {
-  var groupedModules = utils.groupBy(preProcessModules(modules), 'categoryId')
+staticAnalysisView.prototype.checkModule = function (event) {
+  var selectAll = this.view.querySelector('[id="checkallstaticanalysis" ]')
+  if (event.target.checked) {
+    selectAll.checked = true
+  }
+}
+
+staticAnalysisView.prototype.renderModules = function () {
+  var self = this
+  var groupedModules = utils.groupBy(preProcessModules(self.runner.modules()), 'categoryId')
   return Object.keys(groupedModules).map((categoryId, i) => {
     var category = groupedModules[categoryId]
     var entriesDom = category.map((item, i) => {
@@ -119,7 +171,10 @@ function renderModules (modules) {
             type="checkbox"
             name="staticanalysismodule"
             index=${item._index}
-            checked="true" style="vertical-align:bottom">
+            checked="true"
+            style="vertical-align:bottom"
+            onclick="${function (event) { self.checkModule(event) }}"
+            >
           ${item.name}
           ${item.description}
         </label>
@@ -131,6 +186,8 @@ function renderModules (modules) {
               </div>`
   })
 }
+
+module.exports = staticAnalysisView
 
 function preProcessModules (arr) {
   return arr.map((item, i) => {

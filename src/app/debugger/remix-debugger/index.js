@@ -1,6 +1,8 @@
 'use strict'
+// TODO: this file doesn't seem to be used any more and can be removed
 var VMDebugger = require('./src/ui/VmDebugger')
-var Debugger = require('./src/ui/Ethdebugger')
+var Debugger = require('./src/ui/EthdebuggerUI')
+var DebuggerBackend = require('remix-debug').EthDebugger
 
 if (typeof (module) !== 'undefined' && typeof (module.exports) !== 'undefined') {
   module.exports = modules()
@@ -14,7 +16,8 @@ function modules () {
   return {
     ui: {
       Debugger: Debugger,
-      VMdebugger: VMDebugger
+      VMdebugger: VMDebugger,
+      DebuggerBackend
     }
   }
 }

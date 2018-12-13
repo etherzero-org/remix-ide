@@ -1,4 +1,7 @@
 'use strict'
+var remixLib = require('remix-lib')
+var EventManager = remixLib.EventManager
+const PluginAPI = require('./pluginAPI')
 /**
  * Register and Manage plugin:
  *
@@ -76,27 +79,48 @@
  *
  */
 module.exports = class PluginManager {
-  constructor (api = {}, events = {}, opts = {}) {
+  constructor (app, compiler, txlistener, fileProviders, fileManager, udapp) {
     const self = this
-    self._opts = opts
-    self._api = api
-    self._events = events
+    self.event = new EventManager()
+    var pluginAPI = new PluginAPI(
+      this,
+      fileProviders,
+      fileManager,
+      compiler,
+      udapp
+    )
+    self._components = { pluginAPI }
     self.plugins = {}
+    self.origins = {}
     self.inFocus
-    self.allowedapi = {'setConfig': 1, 'getConfig': 1, 'removeConfig': 1}
-    self._events.compiler.register('compilationFinished', (success, data, source) => {
-      if (self.inFocus) {
-        // trigger to the current focus
-        self.post(self.inFocus, JSON.stringify({
-          action: 'notification',
-          key: 'compiler',
-          type: 'compilationFinished',
-          value: [ success, data, source ]
-        }))
-      }
+    fileManager.event.register('currentFileChanged', (file, provider) => {
+      self.broadcast(JSON.stringify({
+        action: 'notification',
+        key: 'editor',
+        type: 'currentFileChanged',
+        value: [ file ]
+      }))
+    })
+    compiler.event.register('compilationFinished', (success, data, source) => {
+      self.broadcast(JSON.stringify({
+        action: 'notification',
+        key: 'compiler',
+        type: 'compilationFinished',
+        value: [ success, data, source ]
+      }))
     })
 
-    self._events.app.register('tabChanged', (tabName) => {
+    txlistener.event.register('newTransaction', (tx) => {
+      self.broadcast(JSON.stringify({
+        action: 'notification',
+        key: 'txlistener',
+        type: 'newTransaction',
+        value: [tx]
+      }))
+    })
+
+    app.event.register('tabChanged', (tabName) => {
+      // TODO Fix this cause this event is no longer triggered
       if (self.inFocus && self.inFocus !== tabName) {
         // trigger unfocus
         self.post(self.inFocus, JSON.stringify({
@@ -115,18 +139,25 @@ module.exports = class PluginManager {
           value: []
         }))
         self.inFocus = tabName
-        self.post(tabName, JSON.stringify({
-          action: 'notification',
-          key: 'compiler',
-          type: 'compilationData',
-          value: [api.compiler.getCompilationResult()]
-        }))
+        pluginAPI.compiler.getCompilationResult(tabName, (error, data) => {
+          if (!error) return
+          self.post(tabName, JSON.stringify({
+            action: 'notification',
+            key: 'compiler',
+            type: 'compilationData',
+            value: [data]
+          }))
+        })
       }
     })
 
     window.addEventListener('message', (event) => {
+      if (event.type !== 'message') return
+      var extension = self.origins[event.origin]
+      if (!extension) return
+
       function response (key, type, callid, error, result) {
-        self.post(self.inFocus, JSON.stringify({
+        self.postToOrigin(event.origin, JSON.stringify({
           id: callid,
           action: 'response',
           key: key,
@@ -135,21 +166,43 @@ module.exports = class PluginManager {
           value: [ result ]
         }))
       }
-      if (event.type === 'message' && self.inFocus && self.plugins[self.inFocus] && self.plugins[self.inFocus].origin === event.origin) {
-        var data = JSON.parse(event.data)
-        data.value.unshift(self.inFocus)
-        if (self.allowedapi[data.type]) {
-          data.value.push((error, result) => {
-            response(data.key, data.type, data.id, error, result)
-          })
-          api[data.key][data.type].apply({}, data.value)
-        }
+      var data = JSON.parse(event.data)
+      data.value.unshift(extension)
+      data.value.push((error, result) => {
+        response(data.key, data.type, data.id, error, result)
+      })
+      if (pluginAPI[data.key] && pluginAPI[data.key][data.type]) {
+        pluginAPI[data.key][data.type].apply({}, data.value)
+      } else {
+        response(data.key, data.type, data.id, `Endpoint ${data.key}/${data.type} not present`, null)
       }
     }, false)
   }
-  register (desc, content) {
+  unregister (desc) {
     const self = this
-    self.plugins[desc.title] = {content, origin: desc.url}
+    self._components.pluginAPI.editor.discardHighlight(desc.title, () => {})
+    delete self.plugins[desc.title]
+    delete self.origins[desc.url]
+  }
+  register (desc, modal, content) {
+    const self = this
+    self.plugins[desc.title] = { content, modal, origin: desc.url }
+    self.origins[desc.url] = desc.title
+  }
+  broadcast (value) {
+    for (var plugin in this.plugins) {
+      this.post(plugin, value)
+    }
+  }
+  postToOrigin (origin, value) {
+    if (this.origins[origin]) {
+      this.post(this.origins[origin], value)
+    }
+  }
+  receivedDataFrom (methodName, mod, argumentsArray) {
+    // TODO check whether 'mod' as right to do that
+    console.log(argumentsArray)
+    this.event.trigger(methodName, argumentsArray)
   }
   post (name, value) {
     const self = this

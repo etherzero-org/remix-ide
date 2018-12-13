@@ -100,7 +100,7 @@ class MultiParamManager {
     if (this.funABI.inputs) {
       return yo`<div>
         ${this.funABI.inputs.map(function (inp) {
-          return yo`<div class="${css.multiArg}"><label for="${inp.name}"> ${inp.name}: </label><input placeholder="${inp.type}" id="${inp.name}" title="${inp.name}"></div>`
+          return yo`<div class="${css.multiArg}"><label for="${inp.name}"> ${inp.name}: </label><input placeholder="${inp.type}" title="${inp.name}"></div>`
         })}
       </div>`
     }
@@ -122,7 +122,6 @@ class MultiParamManager {
 
     var onClick = (domEl) => {
       this.clickCallBack(this.funABI.inputs, this.basicInputField.value)
-      this.emptyInputs()
     }
 
     this.contractActionsContainerSingle = yo`<div class="${css.contractActionsContainerSingle}" >
@@ -138,7 +137,6 @@ class MultiParamManager {
       } else {
         this.clickCallBack(this.funABI.inputs, '')
       }
-      this.emptyInputs()
     }
 
     var button = yo`<button onclick=${() => { multiOnClick() }} class="${css.instanceButton}"></button>`
@@ -185,6 +183,9 @@ class MultiParamManager {
 
     if (this.funABI.inputs && this.funABI.inputs.length > 0) {
       contractProperty.classList.add(css.hasArgs)
+    } else if (this.funABI.type === 'fallback') {
+      contractProperty.classList.add(css.hasArgs)
+      this.contractActionsContainerSingle.querySelector('i').style.visibility = 'hidden'
     } else {
       this.contractActionsContainerSingle.querySelector('i').style.visibility = 'hidden'
       this.basicInputField.style.display = 'none'

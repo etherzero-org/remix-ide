@@ -1,17 +1,21 @@
 'use strict'
-var remixLib = require('remix-lib')
-var EventManager = remixLib.EventManager
+var EventManager = require('../../lib/events')
 var yo = require('yo-yo')
 var csjs = require('csjs-inject')
 var ace = require('brace')
 
 require('brace/theme/tomorrow_night_blue')
 
+var globalRegistry = require('../../global/registry')
+
 var Range = ace.acequire('ace/range').Range
 require('brace/ext/language_tools')
 require('brace/ext/searchbox')
 var langTools = ace.acequire('ace/ext/language_tools')
-require('./mode-solidity.js')
+require('ace-mode-solidity/build/remix-ide/mode-solidity')
+require('brace/mode/javascript')
+require('brace/mode/python')
+require('brace/mode/json')
 var styleGuide = require('../ui/styles-guide/theme-chooser')
 var styles = styleGuide.chooser()
 
@@ -63,12 +67,18 @@ document.head.appendChild(yo`
   </style>
 `)
 
-function Editor (opts = {}) {
+function Editor (opts = {}, localRegistry) {
   var self = this
   var el = yo`<div id="input"></div>`
   var editor = ace.edit(el)
   if (styles.appProperties.aceTheme) {
     editor.setTheme('ace/theme/' + styles.appProperties.aceTheme)
+  }
+  self._components = {}
+  self._components.registry = localRegistry || globalRegistry
+  self._deps = {
+    fileManager: self._components.registry.get('filemanager').api,
+    config: self._components.registry.get('config').api
   }
 
   ace.acequire('ace/ext/language_tools')
@@ -93,6 +103,15 @@ function Editor (opts = {}) {
   var currentSession
 
   var emptySession = createSession('')
+  var modes = {
+    'sol': 'ace/mode/solidity',
+    'js': 'ace/mode/javascript',
+    'py': 'ace/mode/python',
+    'vy': 'ace/mode/python',
+    'txt': 'ace/mode/text',
+    'json': 'ace/mode/json',
+    'abi': 'ace/mode/json'
+  }
 
   editor.on('guttermousedown', function (e) {
     var target = e.domEvent.target
@@ -134,8 +153,9 @@ function Editor (opts = {}) {
     }
   }
 
-  function createSession (content) {
-    var s = new ace.EditSession(content, 'ace/mode/javascript')
+  function createSession (content, mode) {
+    var s = new ace.EditSession(content)
+    s.setMode(mode || 'ace/mode/text')
     s.setUndoManager(new ace.UndoManager())
     s.setTabSize(4)
     s.setUseSoftTabs(true)
@@ -149,9 +169,15 @@ function Editor (opts = {}) {
     editor.focus()
   }
 
+  function getMode (path) {
+    var ext = path.indexOf('.') !== -1 ? /[^.]+$/.exec(path) : null
+    if (ext) ext = ext[0]
+    return ext && modes[ext] ? modes[ext] : modes['txt']
+  }
+
   this.open = function (path, content) {
     if (!sessions[path]) {
-      var session = createSession(content)
+      var session = createSession(content, getMode(path))
       sessions[path] = session
       readOnlySessions[path] = false
     } else if (sessions[path].getValue() !== content) {
@@ -162,7 +188,7 @@ function Editor (opts = {}) {
 
   this.openReadOnly = function (path, content) {
     if (!sessions[path]) {
-      var session = createSession(content)
+      var session = createSession(content, getMode(path))
       sessions[path] = session
       readOnlySessions[path] = true
     }
@@ -217,9 +243,8 @@ function Editor (opts = {}) {
   }
 
   this.discard = function (path) {
-    if (currentSession !== path) {
-      delete sessions[path]
-    }
+    if (sessions[path]) delete sessions[path]
+    if (currentSession === path) currentSession = null
   }
 
   this.resize = function (useWrapMode) {
@@ -275,19 +300,48 @@ function Editor (opts = {}) {
 
   this.find = (string) => editor.find(string)
 
+  this.previousInput = ''
+  this.saveTimeout = null
   // Do setup on initialisation here
   editor.on('changeSession', function () {
+    editorOnChange(self)
     event.trigger('sessionSwitched', [])
 
     editor.getSession().on('change', function () {
+      editorOnChange(self)
       event.trigger('contentChanged', [])
     })
   })
 
   // Unmap ctrl-t & ctrl-f
   editor.commands.bindKeys({ 'ctrl-t': null })
-
+  editor.setShowPrintMargin(false)
   editor.resize(true)
+}
+
+function editorOnChange (self) {
+  var currentFile = self._deps.config.get('currentFile')
+  if (!currentFile) {
+    return
+  }
+  var input = self.get(currentFile)
+  if (!input) {
+    return
+  }
+  // if there's no change, don't do anything
+  if (input === self.previousInput) {
+    return
+  }
+  self.previousInput = input
+
+  // fire storage update
+  // NOTE: save at most once per 5 seconds
+  if (self.saveTimeout) {
+    window.clearTimeout(self.saveTimeout)
+  }
+  self.saveTimeout = window.setTimeout(() => {
+    self._deps.fileManager.saveCurrentFile()
+  }, 5000)
 }
 
 module.exports = Editor

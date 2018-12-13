@@ -1,65 +1,53 @@
 'use strict'
 
 var $ = require('jquery')
-var remixLib = require('remix-lib')
 var yo = require('yo-yo')
-var EventManager = remixLib.EventManager
+var EventManager = require('../../lib/events')
+var globalRegistry = require('../../global/registry')
 
 /*
   attach to files event (removed renamed)
-  opt needs:
-   - filesProviders
-   - config
-   - editor
   trigger: currentFileChanged
 */
 
 class FileManager {
-  constructor (opt = {}) {
+  constructor (localRegistry) {
     this.tabbedFiles = {}
     this.event = new EventManager()
+    this._components = {}
+    this._components.registry = localRegistry || globalRegistry
+  }
 
+  init () {
     var self = this
-    this.opt = opt
-    this.opt.filesProviders['browser'].event.register('fileRenamed', (oldName, newName, isFolder) => { this.fileRenamedEvent(oldName, newName, isFolder) })
-    this.opt.filesProviders['localhost'].event.register('fileRenamed', (oldName, newName, isFolder) => { this.fileRenamedEvent(oldName, newName, isFolder) })
-    this.opt.filesProviders['config'].event.register('fileRenamed', (oldName, newName, isFolder) => { this.fileRenamedEvent(oldName, newName, isFolder) })
-    this.opt.filesProviders['gist'].event.register('fileRenamed', (oldName, newName, isFolder) => { this.fileRenamedEvent(oldName, newName, isFolder) })
-    this.opt.filesProviders['browser'].event.register('fileRemoved', (path) => { this.fileRemovedEvent(path) })
-    this.opt.filesProviders['localhost'].event.register('fileRemoved', (path) => { this.fileRemovedEvent(path) })
-    this.opt.filesProviders['config'].event.register('fileRemoved', (path) => { this.fileRemovedEvent(path) })
-    this.opt.filesProviders['gist'].event.register('fileRemoved', (path) => { this.fileRemovedEvent(path) })
+    self._deps = {
+      compilerImport: self._components.registry.get('compilerimport').api,
+      editor: self._components.registry.get('editor').api,
+      config: self._components.registry.get('config').api,
+      browserExplorer: self._components.registry.get('fileproviders/browser').api,
+      localhostExplorer: self._components.registry.get('fileproviders/localhost').api,
+      configExplorer: self._components.registry.get('fileproviders/config').api,
+      gistExplorer: self._components.registry.get('fileproviders/gist').api,
+      filesProviders: self._components.registry.get('fileproviders').api
+    }
 
-    // tabs
-    var $filesEl = $('#files')
-
-    // Switch tab
-    $filesEl.on('click', '.file:not(.active)', function (ev) {
-      ev.preventDefault()
-      self.switchFile($(this).find('.name').text())
-      return false
-    })
-
-    // Remove current tab
-    $filesEl.on('click', '.file .remove', function (ev) {
-      ev.preventDefault()
-      var name = $(this).parent().find('.name').text()
-      delete self.tabbedFiles[name]
-      self.refreshTabs()
-      if (Object.keys(self.tabbedFiles).length) {
-        self.switchFile(Object.keys(self.tabbedFiles)[0])
-      } else {
-        opt.editor.displayEmptyReadOnlySession()
-        self.opt.config.set('currentFile', '')
-      }
-      return false
-    })
+    self._deps.browserExplorer.event.register('fileRenamed', (oldName, newName, isFolder) => { this.fileRenamedEvent(oldName, newName, isFolder) })
+    self._deps.localhostExplorer.event.register('fileRenamed', (oldName, newName, isFolder) => { this.fileRenamedEvent(oldName, newName, isFolder) })
+    self._deps.configExplorer.event.register('fileRenamed', (oldName, newName, isFolder) => { this.fileRenamedEvent(oldName, newName, isFolder) })
+    self._deps.gistExplorer.event.register('fileRenamed', (oldName, newName, isFolder) => { this.fileRenamedEvent(oldName, newName, isFolder) })
+    self._deps.browserExplorer.event.register('fileRemoved', (path) => { this.fileRemovedEvent(path) })
+    self._deps.localhostExplorer.event.register('fileRemoved', (path) => { this.fileRemovedEvent(path) })
+    self._deps.configExplorer.event.register('fileRemoved', (path) => { this.fileRemovedEvent(path) })
+    self._deps.gistExplorer.event.register('fileRemoved', (path) => { this.fileRemovedEvent(path) })
+    self._deps.localhostExplorer.event.register('errored', (event) => { this.removeTabsOf(self._deps.localhostExplorer) })
+    self._deps.localhostExplorer.event.register('closed', (event) => { this.removeTabsOf(self._deps.localhostExplorer) })
   }
 
   fileRenamedEvent (oldName, newName, isFolder) {
+    var self = this
     if (!isFolder) {
-      this.opt.config.set('currentFile', '')
-      this.opt.editor.discard(oldName)
+      self._deps.config.set('currentFile', '')
+      self._deps.editor.discard(oldName)
       if (this.tabbedFiles[oldName]) {
         delete this.tabbedFiles[oldName]
         this.tabbedFiles[newName] = newName
@@ -67,12 +55,12 @@ class FileManager {
       this.switchFile(newName)
     } else {
       var newFocus
-      for (var k in this.opt.tabbedFiles) {
+      for (var k in this.tabbedFiles) {
         if (k.indexOf(oldName + '/') === 0) {
           var newAbsolutePath = k.replace(oldName, newName)
           this.tabbedFiles[newAbsolutePath] = newAbsolutePath
           delete this.tabbedFiles[k]
-          if (this.opt.config.get('currentFile') === k) {
+          if (self._deps.config.get('currentFile') === k) {
             newFocus = newAbsolutePath
           }
         }
@@ -84,20 +72,45 @@ class FileManager {
     this.refreshTabs()
   }
 
+  currentFileProvider () {
+    var path = this.currentPath()
+    if (path) {
+      return this.fileProviderOf(path)
+    }
+    return null
+  }
+
+  currentFile () {
+    var self = this
+    return self._deps.config.get('currentFile')
+  }
+
   currentPath () {
-    var currentFile = this.opt.config.get('currentFile')
-    var reg = /(.*\/).*/
+    var self = this
+    var currentFile = self._deps.config.get('currentFile')
+    var reg = /(.*)(\/).*/
     var path = reg.exec(currentFile)
     return path ? path[1] : null
   }
 
-  fileRemovedEvent (path) {
-    if (path === this.opt.config.get('currentFile')) {
-      this.opt.config.set('currentFile', '')
+  removeTabsOf (provider) {
+    for (var tab in this.tabbedFiles) {
+      if (this.fileProviderOf(tab).type === provider.type) {
+        this.fileRemovedEvent(tab)
+      }
     }
-    this.opt.editor.discardCurrentSession()
+  }
+
+  fileRemovedEvent (path) {
+    var self = this
+    if (!this.tabbedFiles[path]) return
+    if (path === self._deps.config.get('currentFile')) {
+      self._deps.config.set('currentFile', '')
+    }
+    self._deps.editor.discard(path)
     delete this.tabbedFiles[path]
     this.refreshTabs()
+    this.switchFile()
   }
 
   // Display files that have already been selected
@@ -124,7 +137,7 @@ class FileManager {
     var self = this
     if (file) return _switchFile(file)
     else {
-      var browserProvider = self.opt.filesProviders['browser']
+      var browserProvider = self._deps.filesProviders['browser']
       browserProvider.resolveDirectory('browser', (error, filesTree) => {
         if (error) console.error(error)
         var fileList = Object.keys(filesTree)
@@ -132,22 +145,22 @@ class FileManager {
           _switchFile(browserProvider.type + '/' + fileList[0])
         } else {
           self.event.trigger('currentFileChanged', [])
-          self.opt.editor.displayEmptyReadOnlySession()
+          self._deps.editor.displayEmptyReadOnlySession()
         }
       })
     }
     function _switchFile (file) {
       self.saveCurrentFile()
-      self.opt.config.set('currentFile', file)
+      self._deps.config.set('currentFile', file)
       self.refreshTabs(file)
       self.fileProviderOf(file).get(file, (error, content) => {
         if (error) {
           console.log(error)
         } else {
           if (self.fileProviderOf(file).isReadOnly(file)) {
-            self.opt.editor.openReadOnly(file, content)
+            self._deps.editor.openReadOnly(file, content)
           } else {
-            self.opt.editor.open(file, content)
+            self._deps.editor.open(file, content)
           }
           self.event.trigger('currentFileChanged', [file, self.fileProviderOf(file)])
         }
@@ -164,13 +177,14 @@ class FileManager {
   }
 
   fileProviderOf (file) {
+    if (!file) return null
     var provider = file.match(/[^/]*/)
-    if (provider !== null && this.opt.filesProviders[provider[0]]) {
-      return this.opt.filesProviders[provider[0]]
+    if (provider !== null && this._deps.filesProviders[provider[0]]) {
+      return this._deps.filesProviders[provider[0]]
     } else {
-      for (var handler of this.opt.compilerImport.handlers()) {
+      for (var handler of this._deps.compilerImport.handlers()) {
         if (handler.match.exec(file)) {
-          return this.opt.filesProviders[handler.type]
+          return this._deps.filesProviders[handler.type]
         }
       }
     }
@@ -178,9 +192,9 @@ class FileManager {
   }
 
   saveCurrentFile () {
-    var currentFile = this.opt.config.get('currentFile')
-    if (currentFile && this.opt.editor.current()) {
-      var input = this.opt.editor.get(currentFile)
+    var currentFile = this._deps.config.get('currentFile')
+    if (currentFile && this._deps.editor.current()) {
+      var input = this._deps.editor.get(currentFile)
       if (input) {
         var provider = this.fileProviderOf(currentFile)
         if (provider) {
@@ -189,6 +203,22 @@ class FileManager {
           console.log('cannot save ' + currentFile + '. Does not belong to any explorer')
         }
       }
+    }
+  }
+
+  syncEditor (path) {
+    var self = this
+    var currentFile = this._deps.config.get('currentFile')
+    if (path !== currentFile) return
+
+    var provider = this.fileProviderOf(currentFile)
+    if (provider) {
+      provider.get(currentFile, (error, content) => {
+        if (error) console.log(error)
+        self._deps.editor.setText(content)
+      })
+    } else {
+      console.log('cannot save ' + currentFile + '. Does not belong to any explorer')
     }
   }
 }
